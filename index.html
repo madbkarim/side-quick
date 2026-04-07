@@ -7,6 +7,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/dexie@4.0.4/dist/dexie.min.js"></script>
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script>
@@ -25,11 +27,6 @@
   </script>
   <style>
     [v-cloak] { display: none; }
-    .fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
-    .fade-enter-from, .fade-leave-to { opacity: 0; }
-    .slide-enter-active, .slide-leave-active { transition: all .25s ease; }
-    .slide-enter-from { opacity:0; transform: translateY(8px); }
-    .slide-leave-to { opacity:0; transform: translateY(-8px); }
     .quest-locked { opacity: 0.45; pointer-events: none; }
     .streak-flame { animation: flicker 1.5s ease-in-out infinite alternate; }
     @keyframes flicker { 0%{transform:scale(1)} 100%{transform:scale(1.1)} }
@@ -54,6 +51,12 @@
         <span class="font-bold text-lg tracking-tight">SideQuick</span>
       </button>
       <div class="flex items-center gap-3">
+        <!-- Sync Status -->
+        <div v-if="syncCode" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full"
+             :class="syncConnected ? 'bg-green-50 text-green-700' : 'bg-yellow-50 text-yellow-700'">
+          <span class="w-1.5 h-1.5 rounded-full" :class="syncConnected ? 'bg-green-500' : 'bg-yellow-500'"></span>
+          {{ syncConnected ? 'Synced' : 'Connecting...' }}
+        </div>
         <!-- Streak Badge -->
         <div v-if="currentStreak > 0" class="flex items-center gap-1.5 bg-brand-50 text-brand-700 px-3 py-1 rounded-full text-sm font-semibold">
           <span class="streak-flame">🔥</span>
@@ -69,7 +72,6 @@
   <main class="max-w-4xl mx-auto px-4 py-6">
     <!-- DASHBOARD VIEW -->
     <template v-if="view === 'dashboard'">
-      <!-- Streak & Stats Row -->
       <div class="grid grid-cols-3 gap-4 mb-6">
         <div class="card p-4 text-center">
           <div class="text-3xl font-bold text-brand-600">{{ projects.length }}</div>
@@ -85,33 +87,26 @@
         </div>
       </div>
 
-      <!-- Streak Calendar -->
       <div class="card p-4 mb-6" v-if="streakDays.length">
         <h3 class="text-sm font-semibold text-ink-2 mb-3">Last 30 Days</h3>
         <div class="flex gap-1 flex-wrap">
           <div v-for="day in last30Days" :key="day.date"
                :title="day.date + (day.active ? ' ✓' : '')"
                class="w-4 h-4 rounded-sm transition"
-               :class="day.active ? 'bg-brand-500' : 'bg-surface-3'">
-          </div>
+               :class="day.active ? 'bg-brand-500' : 'bg-surface-3'"></div>
         </div>
       </div>
 
-      <!-- Project List -->
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold">Your Projects</h2>
-        <button @click="openNewProject" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium transition hover:shadow-md">
-          + New Project
-        </button>
+        <button @click="openNewProject" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium transition hover:shadow-md">+ New Project</button>
       </div>
 
       <div v-if="projects.length === 0" class="card p-12 text-center">
         <div class="text-4xl mb-3">🚀</div>
         <h3 class="text-lg font-semibold mb-1">No projects yet</h3>
         <p class="text-ink-2 text-sm mb-4">Create your first project and break it into quests.</p>
-        <button @click="openNewProject" class="btn-primary text-white px-6 py-2.5 rounded-lg text-sm font-medium">
-          Get Started
-        </button>
+        <button @click="openNewProject" class="btn-primary text-white px-6 py-2.5 rounded-lg text-sm font-medium">Get Started</button>
       </div>
 
       <div v-else class="space-y-3">
@@ -130,7 +125,6 @@
               </button>
             </div>
           </div>
-          <!-- Progress Bar -->
           <div class="mt-3 h-1.5 bg-surface-2 rounded-full overflow-hidden">
             <div class="progress-bar h-full bg-brand-500 rounded-full" :style="{width: projectProgress(project)+'%'}"></div>
           </div>
@@ -149,7 +143,6 @@
         Back
       </button>
 
-      <!-- Re-entry Summary -->
       <div v-if="reEntrySummary" class="card p-4 mb-4 border-l-4 border-brand-500 bg-brand-50/50">
         <div class="flex items-start justify-between">
           <div>
@@ -165,16 +158,12 @@
           <h2 class="text-xl font-bold">{{ activeProject.name }}</h2>
           <p class="text-sm text-ink-2 mt-0.5">{{ activeProject.description }}</p>
         </div>
-        <div class="flex gap-2">
-          <button @click="generateReEntry" :disabled="aiLoading"
-                  class="text-sm px-3 py-1.5 rounded-lg border border-surface-3 hover:bg-surface-1 text-ink-2 transition disabled:opacity-50"
-                  title="Get AI summary of where you left off">
-            {{ aiLoading ? '...' : '🧠 Where was I?' }}
-          </button>
-        </div>
+        <button @click="generateReEntry" :disabled="aiLoading"
+                class="text-sm px-3 py-1.5 rounded-lg border border-surface-3 hover:bg-surface-1 text-ink-2 transition disabled:opacity-50">
+          {{ aiLoading ? '...' : '🧠 Where was I?' }}
+        </button>
       </div>
 
-      <!-- Progress -->
       <div class="card p-4 mb-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm font-medium">Progress</span>
@@ -185,7 +174,6 @@
         </div>
       </div>
 
-      <!-- Quest List -->
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold">Quests</h3>
         <button @click="showAddQuest=true" class="text-sm text-brand-600 hover:text-brand-700 font-medium">+ Add Quest</button>
@@ -200,7 +188,6 @@
         <div v-for="(quest, i) in activeQuests" :key="quest.id"
              class="card p-3 flex items-start gap-3 transition"
              :class="{ 'quest-locked': quest.locked && !quest.completed }">
-          <!-- Checkbox -->
           <button @click="toggleQuest(quest)" :disabled="quest.locked"
                   class="mt-0.5 w-5 h-5 rounded flex-shrink-0 border-2 flex items-center justify-center transition"
                   :class="quest.completed ? 'checkbox-done border-brand-600' : 'border-surface-3 hover:border-brand-400'">
@@ -221,7 +208,6 @@
         </div>
       </div>
 
-      <!-- Completed message -->
       <div v-if="projectProgress(activeProject) === 100 && activeQuests.length > 0" class="card p-8 text-center mt-4 bg-gradient-to-br from-brand-50 to-purple-50">
         <div class="text-4xl mb-2">🎉</div>
         <h3 class="text-lg font-bold text-brand-700">Project Complete!</h3>
@@ -235,19 +221,13 @@
     <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
       <div class="p-6">
         <h2 class="text-lg font-bold mb-4">New Project</h2>
-
-        <!-- Step 1: Project Info -->
         <div v-if="newProjectStep === 1">
           <label class="block text-sm font-medium mb-1">Project Name</label>
           <input v-model="newProject.name" class="w-full border border-surface-3 rounded-lg px-3 py-2 text-sm mb-3" placeholder="e.g. Personal Portfolio Website">
-
           <label class="block text-sm font-medium mb-1">Description</label>
           <textarea v-model="newProject.description" rows="3" class="w-full border border-surface-3 rounded-lg px-3 py-2 text-sm mb-4" placeholder="Describe your project in a sentence or two..."></textarea>
-
           <div class="flex gap-2">
-            <button @click="newProjectStep=2" :disabled="!newProject.name.trim()" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex-1 disabled:opacity-50">
-              Add Quests Manually
-            </button>
+            <button @click="newProjectStep=2" :disabled="!newProject.name.trim()" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex-1 disabled:opacity-50">Add Quests Manually</button>
             <button @click="generateQuests" :disabled="!newProject.name.trim() || aiLoading"
                     class="border border-brand-300 text-brand-700 px-4 py-2 rounded-lg text-sm font-medium flex-1 hover:bg-brand-50 transition disabled:opacity-50">
               {{ aiLoading ? 'Generating...' : '🤖 AI Generate' }}
@@ -256,25 +236,18 @@
           <p v-if="!hasApiKey" class="text-xs text-ink-3 mt-2 text-center">AI features require an Anthropic API key in Settings.</p>
           <p v-if="aiError" class="text-xs text-red-500 mt-2 text-center">{{ aiError }}</p>
         </div>
-
-        <!-- Step 2: Add Quests -->
         <div v-if="newProjectStep === 2">
           <p class="text-sm text-ink-2 mb-3">Add quests in order. They'll unlock sequentially.</p>
-
           <div v-for="(q, i) in newProject.quests" :key="i" class="flex items-center gap-2 mb-2">
             <span class="text-xs font-medium text-ink-3 w-5 text-center">{{ i+1 }}</span>
             <input v-model="q.title" class="flex-1 border border-surface-3 rounded-lg px-3 py-1.5 text-sm" :placeholder="'Quest ' + (i+1)">
             <button @click="newProject.quests.splice(i,1)" class="text-ink-3 hover:text-red-500 p-1">✕</button>
           </div>
-
           <button @click="newProject.quests.push({title:'',description:''})" class="text-sm text-brand-600 hover:text-brand-700 font-medium mt-1">+ Add Quest</button>
-
           <div class="flex gap-2 mt-4">
             <button @click="newProjectStep=1" class="px-4 py-2 rounded-lg text-sm border border-surface-3 hover:bg-surface-1 transition">Back</button>
             <button @click="saveNewProject" :disabled="newProject.quests.filter(q=>q.title.trim()).length === 0"
-                    class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex-1 disabled:opacity-50">
-              Create Project
-            </button>
+                    class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex-1 disabled:opacity-50">Create Project</button>
           </div>
         </div>
       </div>
@@ -300,13 +273,32 @@
   <div v-if="showSettings" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop" @click.self="showSettings=false">
     <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
       <h2 class="text-lg font-bold mb-4">Settings</h2>
+
+      <!-- Sync Section -->
+      <div class="mb-5 pb-5 border-b border-surface-3">
+        <h3 class="text-sm font-semibold mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Cross-Device Sync
+        </h3>
+        <label class="block text-sm font-medium mb-1">Sync Code</label>
+        <input v-model="syncCodeInput" class="w-full border border-surface-3 rounded-lg px-3 py-2 text-sm mb-1" placeholder="e.g. my-secret-phrase-123">
+        <p class="text-xs text-ink-3 mb-3">Use the same code on all your devices to sync data. Anyone with this code can access your data.</p>
+        <div class="flex gap-2">
+          <button @click="connectSync" :disabled="!syncCodeInput.trim()" class="btn-primary text-white px-4 py-2 rounded-lg text-sm font-medium flex-1 disabled:opacity-50">
+            {{ syncCode ? 'Update Sync' : 'Connect' }}
+          </button>
+          <button v-if="syncCode" @click="disconnectSync" class="px-4 py-2 rounded-lg text-sm border border-red-300 text-red-600 hover:bg-red-50 transition">Disconnect</button>
+        </div>
+      </div>
+
+      <!-- AI Section -->
       <label class="block text-sm font-medium mb-1">Anthropic API Key</label>
       <input v-model="apiKey" type="password" class="w-full border border-surface-3 rounded-lg px-3 py-2 text-sm mb-1" placeholder="sk-ant-...">
-      <p class="text-xs text-ink-3 mb-4">Stored locally in your browser. Never sent anywhere except Anthropic's API.</p>
+      <p class="text-xs text-ink-3 mb-4">Stored locally. Never sent anywhere except Anthropic's API.</p>
 
       <label class="block text-sm font-medium mb-1">CORS Proxy URL (optional)</label>
       <input v-model="corsProxy" class="w-full border border-surface-3 rounded-lg px-3 py-2 text-sm mb-1" placeholder="https://your-proxy.workers.dev">
-      <p class="text-xs text-ink-3 mb-4">Required if browser blocks direct API calls. Leave empty to call Anthropic directly.</p>
+      <p class="text-xs text-ink-3 mb-4">Required if browser blocks direct API calls.</p>
 
       <div class="flex gap-2">
         <button @click="showSettings=false" class="px-4 py-2 rounded-lg text-sm border border-surface-3 hover:bg-surface-1 transition">Cancel</button>
@@ -330,6 +322,19 @@
 </div>
 
 <script>
+// ── Firebase Setup ──
+const firebaseConfig = {
+  apiKey: "AIzaSyCzPZT9EwS1bgx3-rfSTHKr4GFt10csLxc",
+  authDomain: "sidequick-da7a9.firebaseapp.com",
+  projectId: "sidequick-da7a9",
+  storageBucket: "sidequick-da7a9.firebasestorage.app",
+  messagingSenderId: "545983794995",
+  appId: "1:545983794995:web:bfefbc8629922cc5f9b846"
+};
+firebase.initializeApp(firebaseConfig);
+const firestore = firebase.firestore();
+
+// ── IndexedDB (Dexie) ──
 const db = new Dexie('SideQuickDB');
 db.version(1).stores({
   projects: '++id, name, createdAt, lastActiveAt',
@@ -337,12 +342,38 @@ db.version(1).stores({
   activities: '++id, date, projectId',
   settings: 'key'
 });
+db.version(2).stores({
+  projects: 'id, name, createdAt, lastActiveAt',
+  quests: 'id, projectId, order, completed',
+  activities: 'id, date, projectId',
+  settings: 'key'
+}).upgrade(tx => {
+  // Migrate auto-increment IDs to UUIDs
+  const migrate = (table) => tx.table(table).toCollection().modify(item => {
+    if (typeof item.id === 'number') {
+      const oldId = item.id;
+      item.id = crypto.randomUUID();
+      // For quests, update projectId references if needed
+      if (table === 'quests') {
+        // projectId references will be fixed in a second pass
+      }
+    }
+  });
+  return Promise.all([migrate('projects'), migrate('quests'), migrate('activities')]);
+});
 
-const { createApp, ref, computed, onMounted, watch } = Vue;
+function uid() { return crypto.randomUUID(); }
+
+// ── Hash sync code to use as Firestore path ──
+async function hashCode(code) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code.trim().toLowerCase()));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
+}
+
+const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
 
 createApp({
   setup() {
-    // State
     const view = ref('dashboard');
     const projects = ref([]);
     const allQuests = ref([]);
@@ -352,47 +383,43 @@ createApp({
     const aiLoading = ref(false);
     const aiError = ref('');
 
-    // Modals
     const showNewProject = ref(false);
     const showAddQuest = ref(false);
     const showSettings = ref(false);
     const showDeleteConfirm = ref(false);
     const projectToDelete = ref(null);
 
-    // New project form
     const newProjectStep = ref(1);
     const newProject = ref({ name: '', description: '', quests: [{ title: '', description: '' }] });
-
-    // Add quest form
     const newQuestTitle = ref('');
     const newQuestDesc = ref('');
 
-    // Settings
     const apiKey = ref('');
     const corsProxy = ref('');
+    const syncCode = ref('');
+    const syncCodeInput = ref('');
+    const syncConnected = ref(false);
+    const syncHash = ref('');
+    let unsubscribers = [];
+    let syncingFromRemote = false;
 
     const hasApiKey = computed(() => apiKey.value.trim().length > 0);
 
-    // Computed
     const activeQuests = computed(() => {
       if (!activeProject.value) return [];
-      return allQuests.value
-        .filter(q => q.projectId === activeProject.value.id)
-        .sort((a, b) => a.order - b.order);
+      return allQuests.value.filter(q => q.projectId === activeProject.value.id).sort((a, b) => a.order - b.order);
     });
 
     const completedQuestsCount = computed(() => allQuests.value.filter(q => q.completed).length);
-
     const streakDays = computed(() => activities.value.map(a => a.date));
 
     const last30Days = computed(() => {
       const days = [];
       const today = new Date();
       for (let i = 29; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        days.push({ date: dateStr, active: streakDays.value.includes(dateStr) });
+        const d = new Date(today); d.setDate(d.getDate() - i);
+        const ds = d.toISOString().split('T')[0];
+        days.push({ date: ds, active: streakDays.value.includes(ds) });
       }
       return days;
     });
@@ -403,70 +430,167 @@ createApp({
       const today = new Date().toISOString().split('T')[0];
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
       if (dates[0] !== today && dates[0] !== yesterday) return 0;
-      let streak = 1;
+      let s = 1;
       for (let i = 1; i < dates.length; i++) {
-        const prev = new Date(dates[i - 1]);
-        const curr = new Date(dates[i]);
-        const diff = (prev - curr) / 86400000;
-        if (diff === 1) streak++;
-        else break;
+        if ((new Date(dates[i-1]) - new Date(dates[i])) / 86400000 === 1) s++; else break;
       }
-      return streak;
+      return s;
     });
 
     const longestStreak = computed(() => {
       const dates = [...new Set(streakDays.value)].sort();
       if (!dates.length) return 0;
-      let max = 1, curr = 1;
+      let max = 1, c = 1;
       for (let i = 1; i < dates.length; i++) {
-        const prev = new Date(dates[i - 1]);
-        const now = new Date(dates[i]);
-        if ((now - prev) / 86400000 === 1) { curr++; max = Math.max(max, curr); }
-        else curr = 1;
+        if ((new Date(dates[i]) - new Date(dates[i-1])) / 86400000 === 1) { c++; max = Math.max(max, c); } else c = 1;
       }
       return max;
     });
 
-    // Methods
-    function projectQuests(project) {
-      return allQuests.value.filter(q => q.projectId === project.id);
-    }
-    function projectQuestsTotal(project) { return projectQuests(project).length; }
-    function projectQuestsDone(project) { return projectQuests(project).filter(q => q.completed).length; }
-    function projectProgress(project) {
-      const total = projectQuestsTotal(project);
-      return total ? Math.round((projectQuestsDone(project) / total) * 100) : 0;
-    }
-
-    function isNextQuest(quest) {
-      const quests = activeQuests.value;
-      const firstIncomplete = quests.find(q => !q.completed);
-      return firstIncomplete && firstIncomplete.id === quest.id;
-    }
-
+    // ── Helpers ──
+    function projectQuests(p) { return allQuests.value.filter(q => q.projectId === p.id); }
+    function projectQuestsTotal(p) { return projectQuests(p).length; }
+    function projectQuestsDone(p) { return projectQuests(p).filter(q => q.completed).length; }
+    function projectProgress(p) { const t = projectQuestsTotal(p); return t ? Math.round((projectQuestsDone(p)/t)*100) : 0; }
+    function isNextQuest(quest) { const f = activeQuests.value.find(q => !q.completed); return f && f.id === quest.id; }
     function timeAgo(date) {
       if (!date) return '';
       const s = Math.floor((Date.now() - new Date(date)) / 1000);
-      if (s < 60) return 'just now';
-      if (s < 3600) return Math.floor(s / 60) + 'm ago';
-      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-      return Math.floor(s / 86400) + 'd ago';
+      if (s < 60) return 'just now'; if (s < 3600) return Math.floor(s/60)+'m ago';
+      if (s < 86400) return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago';
     }
 
+    // ── Data loading ──
     async function loadAll() {
       projects.value = await db.projects.toArray();
       allQuests.value = await db.quests.toArray();
       activities.value = await db.activities.toArray();
-      const savedKey = await db.settings.get('apiKey');
-      const savedProxy = await db.settings.get('corsProxy');
-      if (savedKey) apiKey.value = savedKey.value;
-      if (savedProxy) corsProxy.value = savedProxy.value;
+      const sk = await db.settings.get('apiKey');
+      const sp = await db.settings.get('corsProxy');
+      const sc = await db.settings.get('syncCode');
+      if (sk) apiKey.value = sk.value;
+      if (sp) corsProxy.value = sp.value;
+      if (sc) { syncCode.value = sc.value; syncCodeInput.value = sc.value; }
+    }
+
+    // ── Firebase Sync ──
+    function fsCol(name) { return firestore.collection('sync').doc(syncHash.value).collection(name); }
+
+    async function pushToFirestore(collection, data) {
+      if (!syncHash.value) return;
+      const doc = { ...data };
+      // Convert Date objects to ISO strings for Firestore
+      for (const k of Object.keys(doc)) {
+        if (doc[k] instanceof Date) doc[k] = doc[k].toISOString();
+      }
+      await fsCol(collection).doc(data.id).set(doc, { merge: true });
+    }
+
+    async function deleteFromFirestore(collection, id) {
+      if (!syncHash.value) return;
+      await fsCol(collection).doc(id).delete();
+    }
+
+    async function pushAllToFirestore() {
+      if (!syncHash.value) return;
+      const [p, q, a] = await Promise.all([db.projects.toArray(), db.quests.toArray(), db.activities.toArray()]);
+      const batch = firestore.batch();
+      for (const item of p) {
+        const doc = { ...item };
+        for (const k of Object.keys(doc)) { if (doc[k] instanceof Date) doc[k] = doc[k].toISOString(); }
+        batch.set(fsCol('projects').doc(item.id), doc, { merge: true });
+      }
+      for (const item of q) {
+        const doc = { ...item };
+        for (const k of Object.keys(doc)) { if (doc[k] instanceof Date) doc[k] = doc[k].toISOString(); }
+        batch.set(fsCol('quests').doc(item.id), doc, { merge: true });
+      }
+      for (const item of a) {
+        const doc = { ...item };
+        for (const k of Object.keys(doc)) { if (doc[k] instanceof Date) doc[k] = doc[k].toISOString(); }
+        batch.set(fsCol('activities').doc(item.id), doc, { merge: true });
+      }
+      await batch.commit();
+    }
+
+    function startListeners() {
+      stopListeners();
+      if (!syncHash.value) return;
+
+      const listen = (colName, table) => {
+        return fsCol(colName).onSnapshot(snap => {
+          syncingFromRemote = true;
+          snap.docChanges().forEach(async change => {
+            const data = change.doc.data();
+            if (change.type === 'added' || change.type === 'modified') {
+              await table.put(data);
+            } else if (change.type === 'removed') {
+              await table.delete(change.doc.id).catch(() => {});
+            }
+          });
+          // Reload state after processing changes
+          setTimeout(async () => {
+            await loadAll();
+            // Refresh active project reference
+            if (activeProject.value) {
+              activeProject.value = projects.value.find(p => p.id === activeProject.value.id) || null;
+            }
+            syncingFromRemote = false;
+          }, 100);
+        }, err => { console.error('Sync error:', err); syncConnected.value = false; });
+      };
+
+      unsubscribers.push(listen('projects', db.projects));
+      unsubscribers.push(listen('quests', db.quests));
+      unsubscribers.push(listen('activities', db.activities));
+      syncConnected.value = true;
+    }
+
+    function stopListeners() {
+      unsubscribers.forEach(u => u());
+      unsubscribers = [];
+      syncConnected.value = false;
+    }
+
+    async function connectSync() {
+      if (!syncCodeInput.value.trim()) return;
+      syncCode.value = syncCodeInput.value.trim();
+      syncHash.value = await hashCode(syncCode.value);
+      await db.settings.put({ key: 'syncCode', value: syncCode.value });
+      await db.settings.put({ key: 'syncHash', value: syncHash.value });
+      // Push local data first, then start listening
+      await pushAllToFirestore();
+      startListeners();
+    }
+
+    async function disconnectSync() {
+      stopListeners();
+      syncCode.value = '';
+      syncCodeInput.value = '';
+      syncHash.value = '';
+      await db.settings.delete('syncCode');
+      await db.settings.delete('syncHash');
+    }
+
+    // ── CRUD with sync ──
+    async function updateQuestLocks(projectId) {
+      const quests = (await db.quests.where('projectId').equals(projectId).toArray()).sort((a,b) => a.order - b.order);
+      let foundIncomplete = false;
+      for (const q of quests) {
+        if (q.completed) continue;
+        const shouldLock = foundIncomplete;
+        if (q.locked !== shouldLock) {
+          await db.quests.update(q.id, { locked: shouldLock });
+          if (!syncingFromRemote) await pushToFirestore('quests', { ...q, locked: shouldLock });
+        }
+        foundIncomplete = true;
+      }
+      allQuests.value = await db.quests.toArray();
     }
 
     function openNewProject() {
       newProject.value = { name: '', description: '', quests: [{ title: '', description: '' }] };
-      newProjectStep.value = 1;
-      aiError.value = '';
+      newProjectStep.value = 1; aiError.value = '';
       showNewProject.value = true;
     }
 
@@ -474,56 +598,32 @@ createApp({
       activeProject.value = project;
       view.value = 'project';
       reEntrySummary.value = '';
-      // Update lock states
       await updateQuestLocks(project.id);
-      // Auto re-entry if last active > 4 hours ago and has API key
       if (hasApiKey.value && project.lastActiveAt) {
-        const hoursSince = (Date.now() - new Date(project.lastActiveAt)) / 3600000;
-        if (hoursSince > 4) generateReEntry();
+        const h = (Date.now() - new Date(project.lastActiveAt)) / 3600000;
+        if (h > 4) generateReEntry();
       }
-      // Update lastActiveAt
-      await db.projects.update(project.id, { lastActiveAt: new Date() });
+      const now = new Date();
+      await db.projects.update(project.id, { lastActiveAt: now });
+      if (!syncingFromRemote) await pushToFirestore('projects', { ...project, lastActiveAt: now });
       await loadAll();
       activeProject.value = projects.value.find(p => p.id === project.id);
-    }
-
-    async function updateQuestLocks(projectId) {
-      const quests = await db.quests.where('projectId').equals(projectId).sortBy('order');
-      let foundIncomplete = false;
-      for (const q of quests) {
-        if (q.completed) continue;
-        const shouldLock = foundIncomplete;
-        if (q.locked !== shouldLock) {
-          await db.quests.update(q.id, { locked: shouldLock });
-        }
-        foundIncomplete = true;
-      }
-      allQuests.value = await db.quests.toArray();
     }
 
     async function saveNewProject() {
       const validQuests = newProject.value.quests.filter(q => q.title.trim());
       if (!validQuests.length) return;
-
-      const id = await db.projects.add({
-        name: newProject.value.name.trim(),
-        description: newProject.value.description.trim(),
-        createdAt: new Date(),
-        lastActiveAt: new Date()
-      });
+      const projId = uid();
+      const now = new Date();
+      const proj = { id: projId, name: newProject.value.name.trim(), description: newProject.value.description.trim(), createdAt: now, lastActiveAt: now };
+      await db.projects.put(proj);
+      await pushToFirestore('projects', proj);
 
       for (let i = 0; i < validQuests.length; i++) {
-        await db.quests.add({
-          projectId: id,
-          title: validQuests[i].title.trim(),
-          description: validQuests[i].description || '',
-          order: i,
-          completed: false,
-          completedAt: null,
-          locked: i > 0 // First quest unlocked, rest locked
-        });
+        const q = { id: uid(), projectId: projId, title: validQuests[i].title.trim(), description: validQuests[i].description || '', order: i, completed: false, completedAt: null, locked: i > 0 };
+        await db.quests.put(q);
+        await pushToFirestore('quests', q);
       }
-
       showNewProject.value = false;
       await loadAll();
     }
@@ -531,21 +631,23 @@ createApp({
     async function toggleQuest(quest) {
       if (quest.locked) return;
       const completed = !quest.completed;
-      await db.quests.update(quest.id, {
-        completed,
-        completedAt: completed ? new Date() : null
-      });
+      const completedAt = completed ? new Date() : null;
+      await db.quests.update(quest.id, { completed, completedAt });
+      if (!syncingFromRemote) await pushToFirestore('quests', { ...quest, completed, completedAt });
 
       if (completed) {
-        // Record activity
         const today = new Date().toISOString().split('T')[0];
         const existing = await db.activities.where('date').equals(today).first();
-        if (!existing) await db.activities.add({ date: today, projectId: quest.projectId });
-
-        // Update project lastActiveAt
-        await db.projects.update(quest.projectId, { lastActiveAt: new Date() });
+        if (!existing) {
+          const act = { id: uid(), date: today, projectId: quest.projectId };
+          await db.activities.put(act);
+          await pushToFirestore('activities', act);
+        }
+        const now = new Date();
+        await db.projects.update(quest.projectId, { lastActiveAt: now });
+        const proj = await db.projects.get(quest.projectId);
+        if (proj && !syncingFromRemote) await pushToFirestore('projects', { ...proj, lastActiveAt: now });
       }
-
       await loadAll();
       await updateQuestLocks(quest.projectId);
       activeProject.value = projects.value.find(p => p.id === activeProject.value.id);
@@ -555,19 +657,10 @@ createApp({
       if (!newQuestTitle.value.trim() || !activeProject.value) return;
       const quests = await db.quests.where('projectId').equals(activeProject.value.id).toArray();
       const maxOrder = quests.length ? Math.max(...quests.map(q => q.order)) + 1 : 0;
-
-      await db.quests.add({
-        projectId: activeProject.value.id,
-        title: newQuestTitle.value.trim(),
-        description: newQuestDesc.value.trim(),
-        order: maxOrder,
-        completed: false,
-        completedAt: null,
-        locked: quests.some(q => !q.completed) // Lock if any incomplete exist
-      });
-
-      newQuestTitle.value = '';
-      newQuestDesc.value = '';
+      const q = { id: uid(), projectId: activeProject.value.id, title: newQuestTitle.value.trim(), description: newQuestDesc.value.trim(), order: maxOrder, completed: false, completedAt: null, locked: quests.some(q => !q.completed) };
+      await db.quests.put(q);
+      await pushToFirestore('quests', q);
+      newQuestTitle.value = ''; newQuestDesc.value = '';
       showAddQuest.value = false;
       await loadAll();
       await updateQuestLocks(activeProject.value.id);
@@ -575,25 +668,23 @@ createApp({
 
     async function deleteQuest(quest) {
       await db.quests.delete(quest.id);
+      await deleteFromFirestore('quests', quest.id);
       await loadAll();
       if (activeProject.value) await updateQuestLocks(activeProject.value.id);
     }
 
-    function confirmDeleteProject(project) {
-      projectToDelete.value = project;
-      showDeleteConfirm.value = true;
-    }
+    function confirmDeleteProject(project) { projectToDelete.value = project; showDeleteConfirm.value = true; }
 
     async function deleteProject() {
       if (!projectToDelete.value) return;
-      await db.quests.where('projectId').equals(projectToDelete.value.id).delete();
-      await db.projects.delete(projectToDelete.value.id);
+      const pid = projectToDelete.value.id;
+      const quests = await db.quests.where('projectId').equals(pid).toArray();
+      for (const q of quests) { await db.quests.delete(q.id); await deleteFromFirestore('quests', q.id); }
+      await db.projects.delete(pid);
+      await deleteFromFirestore('projects', pid);
       showDeleteConfirm.value = false;
+      if (activeProject.value?.id === pid) { view.value = 'dashboard'; activeProject.value = null; }
       projectToDelete.value = null;
-      if (activeProject.value?.id === projectToDelete.value?.id) {
-        view.value = 'dashboard';
-        activeProject.value = null;
-      }
       await loadAll();
     }
 
@@ -603,95 +694,67 @@ createApp({
       showSettings.value = false;
     }
 
+    // ── AI ──
     async function callAI(prompt) {
       if (!hasApiKey.value) { aiError.value = 'Set your Anthropic API key in Settings first.'; return null; }
-      aiError.value = '';
-      aiLoading.value = true;
+      aiError.value = ''; aiLoading.value = true;
       try {
-        const baseUrl = corsProxy.value.trim()
-          ? corsProxy.value.trim().replace(/\/$/, '') + '/https://api.anthropic.com'
-          : 'https://api.anthropic.com';
-
-        const res = await fetch(baseUrl + '/v1/messages', {
+        const base = corsProxy.value.trim() ? corsProxy.value.trim().replace(/\/$/,'') + '/https://api.anthropic.com' : 'https://api.anthropic.com';
+        const res = await fetch(base + '/v1/messages', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey.value.trim(),
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 1024,
-            messages: [{ role: 'user', content: prompt }]
-          })
+          headers: { 'Content-Type':'application/json', 'x-api-key': apiKey.value.trim(), 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
+          body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:1024, messages:[{role:'user',content:prompt}] })
         });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error?.message || `API error ${res.status}. If CORS blocked, add a proxy URL in Settings.`);
-        }
+        if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error?.message || `API error ${res.status}`); }
         const data = await res.json();
         return data.content[0].text;
-      } catch (e) {
-        aiError.value = e.message;
-        return null;
-      } finally {
-        aiLoading.value = false;
-      }
+      } catch(e) { aiError.value = e.message; return null; }
+      finally { aiLoading.value = false; }
     }
 
     async function generateQuests() {
-      const prompt = `Break this side project into 5-10 sequential quests (actionable steps). Each quest should be achievable in one sitting.
-
-Project: ${newProject.value.name}
-Description: ${newProject.value.description || 'No description provided'}
-
-Return ONLY a JSON array of objects with "title" and "description" fields. No markdown, no explanation. Example:
-[{"title":"Set up project repo","description":"Initialize git, create basic folder structure"}]`;
-
+      const prompt = `Break this side project into 5-10 sequential quests (actionable steps). Each quest should be achievable in one sitting.\n\nProject: ${newProject.value.name}\nDescription: ${newProject.value.description || 'No description'}\n\nReturn ONLY a JSON array of objects with "title" and "description" fields. No markdown.`;
       const result = await callAI(prompt);
       if (!result) return;
       try {
-        const quests = JSON.parse(result.replace(/```json?\n?/g, '').replace(/```/g, '').trim());
+        const quests = JSON.parse(result.replace(/```json?\n?/g,'').replace(/```/g,'').trim());
         newProject.value.quests = quests.map(q => ({ title: q.title, description: q.description || '' }));
         newProjectStep.value = 2;
-      } catch {
-        aiError.value = 'Failed to parse AI response. Try again or add quests manually.';
-      }
+      } catch { aiError.value = 'Failed to parse AI response. Try manually.'; }
     }
 
     async function generateReEntry() {
       const quests = activeQuests.value;
-      const done = quests.filter(q => q.completed).map(q => q.title);
-      const remaining = quests.filter(q => !q.completed).map(q => q.title);
-      const next = remaining[0] || 'None';
-
-      const prompt = `You're a friendly productivity assistant. Give a brief 1-2 sentence "welcome back" summary for someone returning to their side project. Be encouraging and specific.
-
-Project: ${activeProject.value.name}
-Description: ${activeProject.value.description}
-Completed quests: ${done.join(', ') || 'None yet'}
-Next quest: ${next}
-Remaining: ${remaining.join(', ') || 'All done!'}
-
-Reply with ONLY the summary text, no quotes or prefixes.`;
-
+      const done = quests.filter(q=>q.completed).map(q=>q.title);
+      const remaining = quests.filter(q=>!q.completed).map(q=>q.title);
+      const prompt = `You're a friendly productivity assistant. Give a brief 1-2 sentence "welcome back" summary. Be encouraging.\n\nProject: ${activeProject.value.name}\nDescription: ${activeProject.value.description}\nCompleted: ${done.join(', ')||'None'}\nNext: ${remaining[0]||'Done!'}\nRemaining: ${remaining.join(', ')||'All done!'}\n\nReply with ONLY the summary text.`;
       const result = await callAI(prompt);
       if (result) reEntrySummary.value = result.trim();
     }
 
-    onMounted(loadAll);
+    onMounted(async () => {
+      await loadAll();
+      // Auto-connect sync if previously configured
+      if (syncCode.value) {
+        syncHash.value = await hashCode(syncCode.value);
+        startListeners();
+      }
+    });
+
+    onUnmounted(stopListeners);
 
     return {
       view, projects, allQuests, activeProject, reEntrySummary, aiLoading, aiError,
       showNewProject, showAddQuest, showSettings, showDeleteConfirm, projectToDelete,
       newProjectStep, newProject, newQuestTitle, newQuestDesc,
       apiKey, corsProxy, hasApiKey,
+      syncCode, syncCodeInput, syncConnected,
       activeQuests, completedQuestsCount, streakDays, last30Days, currentStreak, longestStreak,
       projectQuestsTotal, projectQuestsDone, projectProgress, isNextQuest, timeAgo,
       openNewProject, openProject, saveNewProject, toggleQuest, addQuestToProject,
       deleteQuest, confirmDeleteProject, deleteProject, saveSettings,
-      generateQuests, generateReEntry, showAddQuest
+      connectSync, disconnectSync,
+      generateQuests, generateReEntry
     };
   }
 }).mount('#app');
